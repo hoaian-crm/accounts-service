@@ -1,10 +1,8 @@
-import { Module, forwardRef } from '@nestjs/common';
-import { EventModule } from '../event/event.module';
-import { ListenerModule } from '../listener/listener.module';
+import { Module} from '@nestjs/common';
 import { ClientService } from './amqp.service';
 
 @Module({
-  imports: [forwardRef(() => EventModule), forwardRef(() => ListenerModule)],
+  imports: [],
   providers: [ClientService],
   exports: [ClientService],
 })

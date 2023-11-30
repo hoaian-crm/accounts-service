@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { Channel, Connection, connect } from 'amqplib/callback_api';
-import { EmitEventDto } from 'src/prototypes/gen/ts/interfaces/event';
 
 @Injectable()
 export class ClientService {
