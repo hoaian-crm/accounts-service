@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+# Deployment object
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    # labels the pods
+    matchLabels:
+      app: crm
+  template:
+    metadata:
+      labels:
+        # The label the pods created from the pod template should have
+        app: crm
+        name: api-gateway
+    spec:
+      containers:
+        # The container name to execute pods
+        - name: api-gateway
+          image: '11112003/crm-api-gateway:master'
+          envFrom:
+            - configMapRef:
+                name: 'crm-env'
+          ports:
+            # Assign ports to expose container
+            - containerPort: 3000
+          imagePullPolicy: Always
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api
+  annotations:
+    cert-manager.io/issuer: 'crm-issuer'
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+
+spec:
+  tls:
+    - hosts:
+        - api.relationc.com
+      secretName: api-ssl
+  rules:
+    - host: api.relationc.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  name: api
+---
+apiVersion: v1
+# Kind for service
+kind: Service
+metadata:
+  # Name your service
+  name: api-gateway
+  labels:
+    app: crm
+spec:
+  # Choose how to expose your service
+  ports:
+    # The port number to expose the service
+    - protocol: TCP
+      port: 3000
+      name: api
+
+  # Pod to route service traffic
+  selector:
+    app: crm
+    name: api-gateway

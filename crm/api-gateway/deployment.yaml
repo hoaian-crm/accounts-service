@@ -1,0 +1,30 @@
+# Kubernetes API version
+apiVersion: apps/v1
+# Deployment object
+kind: Deployment
+metadata:
+  name: api-gateway
+spec:
+  replicas: 1
+  selector:
+    # labels the pods
+    matchLabels:
+      app: crm
+  template:
+    metadata:
+      labels:
+        # The label the pods created from the pod template should have
+        app: crm
+        name: api-gateway
+    spec:
+      containers:
+        # The container name to execute pods
+        - name: api-gateway
+          image: "11112003/crm-api-gateway:master"
+          envFrom:
+            - configMapRef:
+                name: "crm-env"
+          ports:
+            # Assign ports to expose container
+            - containerPort: 3000
+          imagePullPolicy: Always

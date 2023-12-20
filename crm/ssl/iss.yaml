@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: crm-issuer
+spec:
+  acme:
+    email: hoaian412003@gmail.com
+    # We use the staging server here for testing to avoid hitting
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      # if not existing, it will register a new account and stores it
+      name: dashboard-key
+    solvers:
+      - http01:
+          # The ingressClass used to create the necessary ingress routes
+          ingress:
+            class: traefik
