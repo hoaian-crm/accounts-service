@@ -6,7 +6,9 @@ import {
 } from '@kubernetes/client-node';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { readFileSync } from 'fs';
 import { Repository } from 'typeorm';
+import { parse } from 'yaml';
 import { Account } from './account.entity';
 import { CreateAccountDto } from './dto/create';
 
@@ -39,8 +41,12 @@ export class AccountService {
     const { body: namespace } = await this.upsertNameSpace({
       metadata: { name: account.id },
     });
-
-    this.k8sApp.createNamespacedDeployment(namespace.metadata.name, {});
+    const content = readFileSync(
+      'src/template/api-gateway/deployment.yaml',
+      'utf-8',
+    );
+    const jsonFile = parse(content);
+    this.k8sApp.createNamespacedDeployment(namespace.metadata.name, jsonFile);
     return namespace;
   }
 }
