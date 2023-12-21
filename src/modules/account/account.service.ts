@@ -2,13 +2,16 @@ import {
   AppsV1Api,
   CoreV1Api,
   KubeConfig,
+  KubernetesObject,
+  KubernetesObjectApi,
   V1Namespace,
 } from '@kubernetes/client-node';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { readFileSync } from 'fs';
+import { MinioService } from 'crm-minio';
+import { compile } from 'handlebars';
+import * as yaml from 'js-yaml';
 import { Repository } from 'typeorm';
-import { parse } from 'yaml';
 import { Account } from './account.entity';
 import { CreateAccountDto } from './dto/create';
 
@@ -19,6 +22,7 @@ export class AccountService {
   constructor(
     @InjectRepository(Account)
     private accountRepository: Repository<Account>,
+    private minioService: MinioService,
   ) {
     const kc = new KubeConfig();
     kc.loadFromDefault();
@@ -27,26 +31,86 @@ export class AccountService {
   }
 
   async upsertNameSpace(data: V1Namespace) {
-    const namespace =
-      (await this.k8sApi.readNamespace(data.metadata.name)) ??
-      (await this.k8sApi.createNamespace(data));
-
-    return namespace;
+    try {
+      return this.k8sApi.readNamespace(data.metadata.name);
+    } catch (error) {
+      return this.k8sApi.createNamespace(data);
+    }
   }
 
   async create(data: CreateAccountDto) {
     const account = await this.accountRepository.findOne({
       where: { email: data.email },
     });
-    const { body: namespace } = await this.upsertNameSpace({
-      metadata: { name: account.id },
-    });
-    const content = readFileSync(
-      'src/template/api-gateway/deployment.yaml',
-      'utf-8',
+    const templates = await this.minioService.readDir('k8s-infra', '', true);
+    const created = await Promise.all(
+      templates.map(async (template) => {
+        const specContentStr = await this.minioService.readFile(
+          'k8s-infra',
+          template.name,
+        );
+        const specContent = compile(specContentStr.toString());
+        return this.apply(specContent(account), account.id);
+      }),
     );
-    const jsonFile = parse(content);
-    this.k8sApp.createNamespacedDeployment(namespace.metadata.name, jsonFile);
-    return namespace;
+    return created;
+  }
+
+  async apply(
+    specString: string,
+    namespace: string,
+  ): Promise<KubernetesObject[]> {
+    const kc = new KubeConfig();
+    kc.loadFromDefault();
+
+    const client = KubernetesObjectApi.makeApiClient(kc);
+
+    const specs: KubernetesObject[] = yaml.loadAll(specString);
+    const validSpecs = specs.filter((s) => s && s.kind && s.metadata);
+    const created: KubernetesObject[] = [];
+    for (const spec of validSpecs) {
+      // this is to convince the old version of TypeScript that metadata exists even though we already filtered specs
+      // without metadata out
+      spec.metadata = spec.metadata || {};
+      spec.metadata.annotations = spec.metadata.annotations || {};
+      spec.metadata.namespace = namespace;
+      delete spec.metadata.annotations[
+        'kubectl.kubernetes.io/last-applied-configuration'
+      ];
+      spec.metadata.annotations[
+        'kubectl.kubernetes.io/last-applied-configuration'
+      ] = JSON.stringify(spec);
+      try {
+        // try to get the resource, if it does not exist an error will be thrown and we will end up in the catch
+        // block.
+        await client.read(spec as any);
+        // we got the resource, so it exists, so patch it
+        //
+        // Note that this could fail if the spec refers to a custom resource. For custom resources you may need
+        // to specify a different patch merge strategy in the content-type header.
+        //
+        // See: https://github.com/kubernetes/kubernetes/issues/97423
+        const response = await client.patch(
+          spec,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          {
+            headers: {
+              'Content-Type': 'application/merge-patch+json',
+            },
+          },
+        );
+        created.push(response.body);
+      } catch (e) {
+        console.log(e);
+        // we did not get the resource, so it does not exist, so create it
+        const response = await client.create(spec);
+        created.push(response.body);
+      }
+    }
+
+    return created;
   }
 }
