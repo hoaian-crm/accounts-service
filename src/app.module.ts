@@ -16,7 +16,7 @@ import { AccountModule } from './modules/account/account.module';
       password: process.env.PG_PASSWORD,
       database: process.env.PG_DATABASE,
       port: +process.env.PG_PORT,
-      schema: process.env.PG_SCHEMA,
+      schema: 'root',
       autoLoadEntities: true,
       logging: process.env.NODE_ENV === 'local',
     }),

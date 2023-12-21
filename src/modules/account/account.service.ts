@@ -32,15 +32,23 @@ export class AccountService {
 
   async upsertNameSpace(data: V1Namespace) {
     try {
-      return this.k8sApi.readNamespace(data.metadata.name);
+      return await this.k8sApi.readNamespace(data.metadata.name);
     } catch (error) {
-      return this.k8sApi.createNamespace(data);
+      return await this.k8sApi.createNamespace(data);
     }
   }
 
   async create(data: CreateAccountDto) {
-    const account = await this.accountRepository.findOne({
-      where: { email: data.email },
+    const account =
+      (await this.accountRepository.findOne({
+        where: { email: data.email },
+      })) ||
+      (await this.accountRepository.save(this.accountRepository.create(data)));
+    await this.accountRepository.query(
+      `create schema if not exists "${account.id}"`,
+    );
+    await this.upsertNameSpace({
+      metadata: { name: account.id },
     });
     const templates = await this.minioService.readDir('k8s-infra', '', true);
     const created = await Promise.all(
@@ -50,7 +58,12 @@ export class AccountService {
           template.name,
         );
         const specContent = compile(specContentStr.toString());
-        return this.apply(specContent(account), account.id);
+        try {
+          const result = await this.apply(specContent(account), account.id);
+          return result;
+        } catch (error) {
+          console.log('Failed too apply ns: ', template.name, error.message);
+        }
       }),
     );
     return created;
@@ -104,9 +117,18 @@ export class AccountService {
         );
         created.push(response.body);
       } catch (e) {
-        console.log(e);
         // we did not get the resource, so it does not exist, so create it
-        const response = await client.create(spec);
+        const response = await client.create(
+          spec,
+          undefined,
+          undefined,
+          undefined,
+          // {
+          //   headers: {
+          //     'Content-Type': 'application/merge-patch+json',
+          //   },
+          // },
+        );
         created.push(response.body);
       }
     }
